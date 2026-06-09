@@ -1,16 +1,17 @@
 %% ========================================================================
 % 总体刚度矩阵组装与桁架结构求解程序（2D/3D）
+% 2.3作业模块 + 使用MATLAB内置求解器（\）与奇异矩阵处理
 % 包含：两个验证算例 + 附加题（三维桁架）
 % 输出：屏幕显示 + results.txt 文件
-% 改进：对缩减矩阵秩亏情形采用伪逆求解，避免奇异警告
+% 求解器：非奇异时用反斜杠，奇异时自动切换为伪逆
 % ========================================================================
 
 clear; clc; close all;
 
 % 打开输出文件
 fid = fopen('results.txt', 'w');
-fprintf(fid, '总体刚度矩阵组装与桁架结构求解结果\n');
-fprintf(fid, '=====================================\n\n');
+fprintf(fid, '总体刚度矩阵组装与桁架结构求解结果 (MATLAB内置求解器+奇异处理)\n');
+fprintf(fid, '================================================================\n\n');
 
 %% --------------------------- 1. 前处理模块 ---------------------------
 function model = preprocess_example1()
@@ -96,7 +97,7 @@ function K_global = assemble_global_stiffness(n_dof, nel, Ke_list, LM)
     end
 end
 
-%% --------------------------- 4. 求解模块（使用伪逆处理秩亏）---------------------------
+%% --------------------------- 4. 求解模块（处理奇异矩阵）--------------------
 function [d, reaction] = solve_displacement_reaction(K_global, F, fixed_dof, fixed_val)
     n = size(K_global, 1);
     free_dof = setdiff(1:n, fixed_dof);
@@ -104,16 +105,18 @@ function [d, reaction] = solve_displacement_reaction(K_global, F, fixed_dof, fix
     K_fe = K_global(free_dof, fixed_dof);
     F_f = F(free_dof);
     d_E = fixed_val(:);
-
-    % 检查缩减矩阵是否秩亏
-    r = rank(K_ff, 1e-10);
-    if r < size(K_ff, 1)
-        % 秩亏：使用伪逆获得最小范数解（无刚度自由度的位移自动归零）
-        d_F = pinv(K_ff) * (F_f - K_fe * d_E);
+    
+    rhs = F_f - K_fe * d_E;
+    
+    % 检查矩阵是否奇异（条件数过大）
+    if rcond(K_ff) < 1e-12
+        % 奇异矩阵：使用伪逆（无警告，给出最小范数解）
+        d_F = pinv(K_ff) * rhs;
     else
-        d_F = K_ff \ (F_f - K_fe * d_E);
+        % 非奇异：使用高效的反斜杠
+        d_F = K_ff \ rhs;
     end
-
+    
     d = zeros(n, 1);
     d(free_dof) = d_F;
     d(fixed_dof) = d_E;
@@ -202,13 +205,7 @@ postprocess(model1, d1, react1, Ke_list1, LM1, fid);
 fprintf(fid, '\n理论位移: d2=0.1, d3=0.15; 实际: u2=%.6f, u3=%.6f\n', d1(3), d1(5));
 fprintf(fid, '理论反力: 节点1水平反力 -10; 实际: %.6f\n', react1(1));
 
-free_dof1 = setdiff(1:model1.n_dof, model1.fixed_dof);
-K_ff1 = K1(free_dof1, free_dof1);
-if rank(K_ff1) == size(K_ff1,1)
-    fprintf(fid, '✓ 施加边界条件后缩减矩阵非奇异，可求解。\n');
-else
-    fprintf(fid, '✓ 施加边界条件后缩减矩阵仍奇异（无刚度自由度），伪逆已处理。\n');
-end
+fprintf(fid, '求解策略: 非奇异用\\，奇异用pinv。\n');
 
 %% 算例2
 fprintf(fid, '\n------------------ 算例2：二维两杆桁架结构 ------------------\n');
@@ -240,13 +237,7 @@ fprintf(fid, '实际节点3位移: u=%.6f, v=%.6f\n', d2(5), d2(6));
 fprintf(fid, '理论单元1应力: -10.000, 单元2应力: 14.142136\n');
 fprintf(fid, '实际见上表，应一致。\n');
 
-free_dof2 = setdiff(1:model2.n_dof, model2.fixed_dof);
-K_ff2 = K2(free_dof2, free_dof2);
-if rank(K_ff2) == size(K_ff2,1)
-    fprintf(fid, '✓ 施加边界条件后缩减矩阵非奇异，可求解。\n');
-else
-    fprintf(fid, '✓ 施加边界条件后缩减矩阵仍奇异（无刚度自由度），伪逆已处理。\n');
-end
+fprintf(fid, '求解策略: 非奇异用\\，奇异用pinv。\n');
 
 %% 总体刚度矩阵第 j 列物理意义
 fprintf(fid, '\n========== 总体刚度矩阵第 j 列物理意义 ==========\n');
